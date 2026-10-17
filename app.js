@@ -281,12 +281,17 @@
     try { history.replaceState(null, "", url); } catch (e) { /* some browsers block this on file:// */ }
   }
 
+  let shownDetail = null;
   function render() {
     renderFilters();
     renderScope();
     renderChips();
     renderList();
     renderDetail();
+    if (state.selected !== shownDetail) {
+      $("detail").scrollTop = 0;
+      shownDetail = state.selected;
+    }
     renderPendingBanner($("pending"));
   }
 
@@ -312,6 +317,9 @@
   const gathered = catalogMeta.gathered || meta.gathered || "?";
   $("meta").textContent = `${ships.length} vehicles · data for patch ${catalogMeta.patch || meta.patch || "?"} · gathered ${gathered} · prices are crowdsourced, so check cstone before buying`;
   $("search").addEventListener("input", (e) => { state.query = e.target.value; render(); saveQueryToUrl(); });
+  $("siteLinks").innerHTML = ((window.SITE || {}).links || [])
+    .map((l) => `<a href="${esc(l.href)}">${esc(l.label)} →</a>`)
+    .join("");
   $("filtersToggle").addEventListener("click", () => {
     panelOpen = !panelOpen;
     try { localStorage.setItem(PANEL_KEY, panelOpen ? "1" : "0"); } catch (e) { /* storage unavailable */ }
