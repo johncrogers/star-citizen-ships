@@ -5,6 +5,15 @@
     Purchases, Wishlist, onChange, renderPendingBanner, purchaseToggle, wishlistControl, thingsToKnow, tagClass,
   } = window.Wishlist;
   const Filters = window.ShipFilters;
+  // "New Deal — Teasa Spaceport, Lorville, Hurston (Stanton)" -> search the locations app for it.
+  const locationsHref = ((window.SITE || {}).links || []).find((l) => l.id === "locations")?.href;
+  const shopLink = (label) => {
+    if (!locationsHref) return esc(label);
+    const [shop, rest = ""] = label.split(" — ");
+    const place = rest.replace(/\s*\([^)]*\)\s*$/, "").split(",")[0].trim();
+    const q = [shop, place].filter(Boolean).map((x) => `"${x}"`).join(" ");
+    return `<a href="${esc(locationsHref)}?q=${encodeURIComponent(q)}" title="Where it is and how to get there">${esc(label)}</a>`;
+  };
   const catalogMeta = window.SHIP_CATALOG_META || {};
   const meta = window.SHIPS_META || {};
 
@@ -168,12 +177,12 @@
     const buyRows = acq.buy
       .slice()
       .sort((x, y) => x.price - y.price)
-      .map((b) => `<tr${b.price === best ? ' class="best"' : ""}><td>${esc(b.location)}</td><td class="num">${fmt(b.price)}</td></tr>`)
+      .map((b) => `<tr${b.price === best ? ' class="best"' : ""}><td>${shopLink(b.location)}</td><td class="num">${fmt(b.price)}</td></tr>`)
       .join("");
     const rentRows = acq.rent
       .slice()
       .sort((x, y) => x.pricePerDay - y.pricePerDay)
-      .map((r) => `<tr><td>${esc(r.location)}</td><td class="num">${fmt(r.pricePerDay)} / day</td></tr>`)
+      .map((r) => `<tr><td>${shopLink(r.location)}</td><td class="num">${fmt(r.pricePerDay)} / day</td></tr>`)
       .join("");
 
     const links = [
