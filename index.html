@@ -34,10 +34,12 @@
       <option value="earn">Earned in-game (Wikelo, events)</option>
       <option value="none">Not in game</option>
     </select>
-    <select id="owned" aria-label="Purchased">
-      <option value="">Wanted &amp; purchased</option>
-      <option value="wanted">Still wanted</option>
-      <option value="purchased">Purchased</option>
+    <select id="owned" aria-label="Owned">
+      <option value="">Owned or not</option>
+      <option value="wanted">Not owned yet</option>
+      <option value="purchased">Owned (either way)</option>
+      <option value="pledged">Pledged (real money)</option>
+      <option value="bought">Bought in-game</option>
     </select>
     <select id="sort" aria-label="Sort">
       <option value="list">List order</option>
@@ -58,11 +60,13 @@
 
   <section class="filter-panel" id="filterPanel" hidden></section>
   <div class="active-filters" id="activeFilters"></div>
+  <div class="cmp-tray" id="compareTray"></div>
 
   <main class="layout">
     <ul class="list" id="list"></ul>
     <article class="detail" id="detail"></article>
   </main>
+  <main class="compare-view" id="compareView"></main>
 
   <script src="site.js"></script>
   <script src="catalog.data.js"></script>
@@ -71,6 +75,7 @@
   <script src="purchases.js"></script>
   <script src="common.js"></script>
   <script src="filters.js"></script>
+  <script src="compare.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -146,21 +146,53 @@
   }
 
   // ── Purchases ──────────────────────────────────────────────────────────────
+  // A ship can be owned two ways, each with the date it was marked:
+  //   aUEC:   bought in-game with aUEC
+  //   pledge: bought with real money on the RSI pledge store (the only kind you can upgrade)
+  // Older files used { date } for an in-game purchase, which still reads as aUEC.
+  const HOW = ["aUEC", "pledge"];
+  const howLabel = { aUEC: "Bought in-game", pledge: "Pledged" };
   const purchaseStore = createStore({
     key: "sc-ships-wishlist:purchase-overrides",
     globalName: "PURCHASES",
     fileName: "purchases.js",
     label: "purchase",
     header: [
-      `// Ships I've purchased: { "<ship id>": { date: "YYYY-MM-DD" } }.`,
-      `// The viewer's "Purchased" checkboxes save to the browser right away. To make them permanent`,
-      `// (and visible to agents and git), click "Save purchases.js" in the viewer and replace this file.`,
+      `// Ships I own: { "<ship id>": { "aUEC": "YYYY-MM-DD", "pledge": "YYYY-MM-DD" } }, either or both.`,
+      `//   aUEC:   bought in-game with aUEC.`,
+      `//   pledge: bought with real money on the RSI pledge store. Only pledged ships can be upgraded.`,
+      `// The viewer's "Bought in-game" and "Pledged" checkboxes save to the browser right away. To make`,
+      `// them permanent (and visible to agents and git), click "Save purchases.js" in the viewer and replace this file.`,
     ],
   });
+  const ownership = (id) => {
+    const v = purchaseStore.get(id);
+    if (!v) return null;
+    const out = {};
+    if (v.aUEC || v.date) out.aUEC = v.aUEC || v.date;
+    if (v.pledge) out.pledge = v.pledge;
+    return Object.keys(out).length ? out : null;
+  };
   const Purchases = {
     ...purchaseStore,
-    isPurchased: purchaseStore.has,
-    set: (id, purchased) => purchaseStore.set(id, purchased ? { date: today() } : null),
+    get: ownership,
+    // has(id) = owned either way; has(id, "pledge") / has(id, "aUEC") = owned that way.
+    has: (id, how) => {
+      const o = ownership(id);
+      return !!o && (!how || !!o[how]);
+    },
+    isPurchased: (id) => Purchases.has(id),
+    isPledged: (id) => Purchases.has(id, "pledge"),
+    isBought: (id) => Purchases.has(id, "aUEC"),
+    set(id, how, on) {
+      const cur = ownership(id) || {};
+      const next = {};
+      for (const k of HOW) {
+        const keep = k === how ? on : !!cur[k];
+        if (keep) next[k] = cur[k] || today();
+      }
+      purchaseStore.set(id, Object.keys(next).length ? next : null);
+    },
   };
 
   // ── Wishlist ───────────────────────────────────────────────────────────────
@@ -231,13 +263,22 @@
     };
   }
 
+  // Two toggles for detail and guide pages: bought in-game, and pledged.
   function purchaseToggle(id) {
-    const p = Purchases.get(id);
-    return `<label class="purchase-toggle${p ? " on" : ""}">
-      <input type="checkbox" data-purchase="${esc(id)}"${p ? " checked" : ""}>
-      <span>${p ? `Purchased <small>${esc(p.date || "")}</small>` : "Mark purchased"}</span>
-    </label>`;
+    const p = Purchases.get(id) || {};
+    return HOW.map(
+      (how) => `<label class="purchase-toggle ${how}${p[how] ? " on" : ""}" title="${how === "pledge" ? "Bought with real money on the RSI pledge store" : "Bought in-game with aUEC"}">
+      <input type="checkbox" data-purchase="${esc(id)}" data-how="${how}"${p[how] ? " checked" : ""}>
+      <span>${p[how] ? `${howLabel[how]} <small>${esc(p[how])}</small>` : `Mark ${howLabel[how].toLowerCase()}`}</span>
+    </label>`
+    ).join("");
   }
+
+  // Short ownership label for lists and the compare table: "Pledged", "Bought in-game", both, or "".
+  const ownedLabel = (id) => {
+    const p = Purchases.get(id) || {};
+    return HOW.filter((h) => p[h]).map((h) => howLabel[h]).join(" + ");
+  };
 
   // Wishlist control for detail/guide pages: add/remove, and pick a group.
   function wishlistControl(ship) {
@@ -260,7 +301,7 @@
   document.addEventListener("change", (e) => {
     const t = e.target;
     if (!t.dataset) return;
-    if (t.dataset.purchase) Purchases.set(t.dataset.purchase, t.checked);
+    if (t.dataset.purchase) Purchases.set(t.dataset.purchase, t.dataset.how || "aUEC", t.checked);
     if (t.dataset.wishSelect) {
       const id = t.dataset.wishSelect;
       let group = t.value;
@@ -292,6 +333,6 @@
 
   window.Wishlist = {
     esc, fmt, published, ships, shipById, availability, availabilityLabel, bestPrice,
-    Purchases, Wishlist, onChange, renderPendingBanner, purchaseToggle, wishlistControl, thingsToKnow, tagClass,
+    Purchases, Wishlist, onChange, renderPendingBanner, purchaseToggle, ownedLabel, wishlistControl, thingsToKnow, tagClass,
   };
 })();

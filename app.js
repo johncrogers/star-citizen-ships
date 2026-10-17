@@ -5,6 +5,7 @@
     Purchases, Wishlist, onChange, renderPendingBanner, purchaseToggle, wishlistControl, thingsToKnow, tagClass,
   } = window.Wishlist;
   const Filters = window.ShipFilters;
+  const Compare = window.ShipCompare;
   // "New Deal — Teasa Spaceport, Lorville, Hurston (Stanton)" -> search the locations app for it.
   const locationsHref = ((window.SITE || {}).links || []).find((l) => l.id === "locations")?.href;
   const shopLink = (label) => {
@@ -48,13 +49,21 @@
   };
   const inScope = () => (state.scope === "wishlist" ? ships.filter((s) => Wishlist.isWanted(s.id)) : ships);
 
+  const ownedMatches = (s) => {
+    if (!state.owned) return true;
+    if (state.owned === "wanted") return !Purchases.isPurchased(s.id);
+    if (state.owned === "pledged") return Purchases.isPledged(s.id);
+    if (state.owned === "bought") return Purchases.isBought(s.id);
+    return Purchases.isPurchased(s.id);
+  };
+
   function filtered() {
     const terms = Filters.parse(state.query);
     const out = inScope().filter(
       (s) =>
         (!state.category || categoryOf(s) === state.category) &&
         (!state.availability || availability(s) === state.availability) &&
-        (!state.owned || (state.owned === "purchased") === Purchases.isPurchased(s.id)) &&
+        ownedMatches(s) &&
         Filters.matches(terms, s, haystacks.get(s.id))
     );
     const priceKey = (s, dir) => bestPrice(s) ?? (dir > 0 ? Infinity : -Infinity);
@@ -85,6 +94,7 @@
     $("scope").innerHTML = [
       ["wishlist", "My wishlist", wanted],
       ["all", "All ships", ships.length],
+      ["compare", "Compare &amp; upgrade", Compare.ids().length],
     ]
       .map(([k, label, n]) => `<button class="tab${state.scope === k ? " on" : ""}" data-scope="${k}">${label} <span>${n}</span></button>`)
       .join("");
@@ -125,12 +135,21 @@
             const a = availability(s);
             const price = bestPrice(s);
             const owned = Purchases.isPurchased(s.id);
+            const pledged = Purchases.isPledged(s.id);
+            const bought = Purchases.isBought(s.id);
             const wanted = Wishlist.isWanted(s.id);
+            const comparing = Compare.has(s.id);
             const cat = categoryOf(s);
             return `<li class="row${s.id === state.selected ? " active" : ""}${owned ? " owned" : ""}">
               <span class="row-controls">
-                <button type="button" class="star${wanted ? " on" : ""}" data-wish="${esc(s.id)}" title="${wanted ? "Remove from" : "Add to"} wishlist" aria-label="${wanted ? "Remove" : "Add"} ${esc(s.name)} ${wanted ? "from" : "to"} wishlist">${wanted ? "★" : "☆"}</button>
-                <input type="checkbox" class="row-check" data-purchase="${esc(s.id)}"${owned ? " checked" : ""} title="Purchased" aria-label="Purchased ${esc(s.name)}">
+                <span class="ctl-stack">
+                  <button type="button" class="star${wanted ? " on" : ""}" data-wish="${esc(s.id)}" title="${wanted ? "Remove from" : "Add to"} wishlist" aria-label="${wanted ? "Remove" : "Add"} ${esc(s.name)} ${wanted ? "from" : "to"} wishlist">${wanted ? "★" : "☆"}</button>
+                  <button type="button" class="cmp-mini${comparing ? " on" : ""}" data-compare="${esc(s.id)}"${!comparing && Compare.full() ? " disabled" : ""} title="${comparing ? "Remove from compare" : Compare.full() ? `Compare holds up to ${Compare.MAX} ships` : "Add to compare"}" aria-label="${comparing ? "Remove" : "Add"} ${esc(s.name)} ${comparing ? "from" : "to"} compare">⇄</button>
+                </span>
+                <span class="ctl-stack">
+                  <label class="own-mini" title="Bought in-game with aUEC"><input type="checkbox" data-purchase="${esc(s.id)}" data-how="aUEC"${bought ? " checked" : ""} aria-label="Bought ${esc(s.name)} in-game">UEC</label>
+                  <label class="own-mini pledge" title="Pledged with real money"><input type="checkbox" data-purchase="${esc(s.id)}" data-how="pledge"${pledged ? " checked" : ""} aria-label="Pledged ${esc(s.name)}">$</label>
+                </span>
               </span>
               <a href="#${esc(s.id)}" class="row-link">
                 <div class="row-main">
@@ -153,7 +172,7 @@
     const buyable = items.filter((s) => !Purchases.isPurchased(s.id) && bestPrice(s) != null);
     const total = buyable.reduce((sum, s) => sum + bestPrice(s), 0);
     $("total").innerHTML = `
-      <span>${purchasedCount} / ${pool.length} purchased · ${buyable.length} shown still to buy in-game for</span>
+      <span>${purchasedCount} / ${pool.length} owned · ${buyable.length} shown still to buy in-game for</span>
       <strong>${fmt(total)} aUEC</strong>`;
   }
 
@@ -211,7 +230,7 @@
           <span class="tag status-${esc(s.status)}">${esc(s.status)}</span>
         </div>
       </div>
-      <div class="toggles">${wishlistControl(s)}${purchaseToggle(s.id)}</div>
+      <div class="toggles">${wishlistControl(s)}${purchaseToggle(s.id)}${Compare.toggleHtml(s.id)}</div>
       <p>${esc(s.description)}</p>
       <nav class="links">${links}</nav>
 
@@ -223,6 +242,7 @@
         ${acq.requirements ? `<div><dt>Requirements</dt><dd>${esc(acq.requirements)}</dd></div>` : ""}
         <div><dt>Pledge</dt><dd>${pledge}</dd></div>
       </dl>
+      ${Compare.upgradeSummary(s)}
       ${buyRows ? `<table><thead><tr><th>Buy location</th><th class="num">aUEC</th></tr></thead><tbody>${buyRows}</tbody></table>` : ""}
       ${rentRows ? `<table><thead><tr><th>Rental location</th><th class="num">aUEC</th></tr></thead><tbody>${rentRows}</tbody></table>` : ""}
       ${acq.notes ? `<p class="note">${esc(acq.notes)}</p>` : ""}
@@ -290,10 +310,27 @@
     try { history.replaceState(null, "", url); } catch (e) { /* some browsers block this on file:// */ }
   }
 
+  const comparing = () => state.scope === "compare";
+
+  // In the Compare tab the address bar holds the ships (#compare=a,b), so the view can be bookmarked.
+  function syncCompareHash() {
+    const hash = comparing() ? `#compare=${Compare.ids().join(",")}` : state.selected ? `#${state.selected}` : "";
+    if (location.hash === hash) return;
+    try { history.replaceState(null, "", hash || location.pathname + location.search); } catch (e) { /* blocked on some file:// pages */ }
+  }
+
   let shownDetail = null;
   function render() {
-    renderFilters();
+    document.body.classList.toggle("compare-mode", comparing());
     renderScope();
+    $("compareTray").innerHTML = comparing() ? "" : Compare.trayHtml();
+    renderPendingBanner($("pending"));
+    if (comparing()) {
+      Compare.render($("compareView"));
+      syncCompareHash();
+      return;
+    }
+    renderFilters();
     renderChips();
     renderList();
     renderDetail();
@@ -301,7 +338,6 @@
       $("detail").scrollTop = 0;
       shownDetail = state.selected;
     }
-    renderPendingBanner($("pending"));
   }
 
   function setScope(scope) {
@@ -312,8 +348,16 @@
 
   function selectFromHash() {
     const id = decodeURIComponent(location.hash.slice(1));
+    if (id.startsWith("compare")) {
+      const list = id.replace(/^compare=?/, "").split(",").filter(Boolean);
+      if (list.length) Compare.setAll(list);
+      setScope("compare");
+      return;
+    }
     if (!id || !ships.some((s) => s.id === id)) return;
     state.selected = id;
+    // Opening a ship from the Compare tab goes back to the list.
+    if (comparing()) setScope(Wishlist.isWanted(id) ? "wishlist" : "all");
     // Linking to a ship that isn't on the wishlist: show it in "All ships" with filters cleared.
     if (state.scope === "wishlist" && !Wishlist.isWanted(id)) setScope("all");
     if (!filtered().some((s) => s.id === id)) {
@@ -349,7 +393,17 @@
     if (!btn) return;
     setScope(btn.dataset.scope);
     render();
+    syncCompareHash();
   });
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-open-compare], button[data-upgrade-to]");
+    if (!btn) return;
+    if (btn.dataset.upgradeTo) Compare.setUpgrade(null, btn.dataset.upgradeTo);
+    setScope("compare");
+    render();
+    window.scrollTo(0, 0);
+  });
+  Compare.onChange(render);
   $("categoryChips").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-cat]");
     if (!btn) return;
