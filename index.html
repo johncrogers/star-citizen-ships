@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ships Wishlist</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Ships Wishlist</h1>
+      <p class="meta" id="meta"></p>
+    </div>
+    <div class="total" id="total"></div>
+  </header>
+
+  <div class="pending" id="pending" hidden></div>
+
+  <nav class="scope" id="scope" aria-label="Which ships"></nav>
+
+  <section class="toolbar">
+    <input id="search" type="search" placeholder="Search, or filter: cargo>=32 maker:drake is:rentable…" autocomplete="off" spellcheck="false">
+    <button type="button" id="filtersToggle" class="ghost filters-toggle" aria-expanded="false" aria-controls="filterPanel">Filters</button>
+    <div class="chips" id="categoryChips"></div>
+    <select id="availability" aria-label="Availability">
+      <option value="">Any availability</option>
+      <option value="buy">Buyable in-game</option>
+      <option value="rent">Rental only</option>
+      <option value="pledge">Pledge only</option>
+      <option value="earn">Earned in-game (Wikelo, events)</option>
+      <option value="none">Not in game</option>
+    </select>
+    <select id="owned" aria-label="Purchased">
+      <option value="">Wanted &amp; purchased</option>
+      <option value="wanted">Still wanted</option>
+      <option value="purchased">Purchased</option>
+    </select>
+    <select id="sort" aria-label="Sort">
+      <option value="list">List order</option>
+      <option value="price-asc">Price: low → high</option>
+      <option value="price-desc">Price: high → low</option>
+      <option value="name">Name</option>
+      <option value="manufacturer">Manufacturer</option>
+      <option value="stat:cargo">Cargo: most first</option>
+      <option value="stat:scm">SCM speed: fastest first</option>
+      <option value="stat:dps">Pilot DPS: highest first</option>
+      <option value="stat:hull">Hull HP: highest first</option>
+      <option value="stat:shield">Shield HP: highest first</option>
+      <option value="stat:qt">Quantum range: longest first</option>
+      <option value="stat:length">Length: biggest first</option>
+      <option value="stat:crew">Crew: largest first</option>
+    </select>
+  </section>
+
+  <section class="filter-panel" id="filterPanel" hidden></section>
+  <div class="active-filters" id="activeFilters"></div>
+
+  <main class="layout">
+    <ul class="list" id="list"></ul>
+    <article class="detail" id="detail"></article>
+  </main>
+
+  <script src="site.js"></script>
+  <script src="catalog.data.js"></script>
+  <script src="ships.data.js"></script>
+  <script src="wishlist.js"></script>
+  <script src="purchases.js"></script>
+  <script src="common.js"></script>
+  <script src="filters.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
