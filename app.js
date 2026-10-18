@@ -7,6 +7,7 @@
   const Filters = window.ShipFilters;
   const Compare = window.ShipCompare;
   const ValueMap = window.ValueMap;
+  const Fleet = window.Fleet;
   // "New Deal — Teasa Spaceport, Lorville, Hurston (Stanton)" -> search the locations app for it.
   const locationsHref = ((window.SITE || {}).links || []).find((l) => l.id === "locations")?.href;
   const componentsHref = ((window.SITE || {}).links || []).find((l) => l.id === "components")?.href;
@@ -23,6 +24,7 @@
   const SCOPE_KEY = "sc-ships-wishlist:scope";
   let savedScope = "wishlist";
   try { savedScope = localStorage.getItem(SCOPE_KEY) || "wishlist"; } catch (e) { /* storage unavailable */ }
+  if (savedScope === "value" || savedScope === "fleet") savedScope = "wishlist";
   const state = { scope: savedScope, query: "", category: "", availability: "", owned: "", sort: "list", selected: null };
 
   const $ = (id) => document.getElementById(id);
@@ -97,6 +99,7 @@
       ["wishlist", "My wishlist", wanted],
       ["all", "All ships", ships.length],
       ["compare", "Compare &amp; upgrade", Compare.ids().length],
+      ["fleet", "My fleet", null],
       ["value", "Value map", null],
     ]
       .map(([k, label, n]) => `<button class="tab${state.scope === k ? " on" : ""}" data-scope="${k}">${label}${n != null ? ` <span>${n}</span>` : ""}</button>`)
@@ -316,10 +319,11 @@
 
   const comparing = () => state.scope === "compare";
   const valuing = () => state.scope === "value";
+  const fleeting = () => state.scope === "fleet";
 
   // In the Compare tab the address bar holds the ships (#compare=a,b), so the view can be bookmarked.
   function syncCompareHash() {
-    const hash = comparing() ? `#compare=${Compare.ids().join(",")}` : valuing() ? "#value" : state.selected ? `#${state.selected}` : "";
+    const hash = comparing() ? `#compare=${Compare.ids().join(",")}` : valuing() ? "#value" : fleeting() ? "#fleet" : state.selected ? `#${state.selected}` : "";
     if (location.hash === hash) return;
     try { history.replaceState(null, "", hash || location.pathname + location.search); } catch (e) { /* blocked on some file:// pages */ }
   }
@@ -328,9 +332,15 @@
   function render() {
     document.body.classList.toggle("compare-mode", comparing());
     document.body.classList.toggle("value-mode", valuing());
+    document.body.classList.toggle("fleet-mode", fleeting());
     renderScope();
-    $("compareTray").innerHTML = comparing() || valuing() ? "" : Compare.trayHtml();
+    $("compareTray").innerHTML = comparing() || valuing() || fleeting() ? "" : Compare.trayHtml();
     renderPendingBanner($("pending"));
+    if (fleeting()) {
+      Fleet.render($("fleetView"));
+      syncCompareHash();
+      return;
+    }
     if (valuing()) {
       ValueMap.render($("valueView"));
       syncCompareHash();
@@ -365,11 +375,11 @@
       setScope("compare");
       return;
     }
-    if (id === "value") return setScope("value");
+    if (id === "value" || id === "fleet") return setScope(id);
     if (!id || !ships.some((s) => s.id === id)) return;
     state.selected = id;
     // Opening a ship from the Compare tab or the value map goes back to the list.
-    if (comparing() || valuing()) setScope(Wishlist.isWanted(id) ? "wishlist" : "all");
+    if (comparing() || valuing() || fleeting()) setScope(Wishlist.isWanted(id) ? "wishlist" : "all");
     // Linking to a ship that isn't on the wishlist: show it in "All ships" with filters cleared.
     if (state.scope === "wishlist" && !Wishlist.isWanted(id)) setScope("all");
     if (!filtered().some((s) => s.id === id)) {
@@ -417,6 +427,14 @@
   });
   Compare.onChange(render);
   ValueMap.bind($("valueView"), render);
+  // Clicking a role in fleet coverage lists its ships.
+  Fleet.bind($("fleetView"), render, (q) => {
+    setScope("all");
+    setQuery(q);
+    window.scrollTo(0, 0);
+  });
+  let resizeTimer;
+  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (fleeting()) render(); }, 150); });
   $("categoryChips").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-cat]");
     if (!btn) return;
