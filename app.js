@@ -8,6 +8,7 @@
   const Compare = window.ShipCompare;
   // "New Deal — Teasa Spaceport, Lorville, Hurston (Stanton)" -> search the locations app for it.
   const locationsHref = ((window.SITE || {}).links || []).find((l) => l.id === "locations")?.href;
+  const componentsHref = ((window.SITE || {}).links || []).find((l) => l.id === "components")?.href;
   const shopLink = (label) => {
     if (!locationsHref) return esc(label);
     const [shop, rest = ""] = label.split(" — ");
@@ -206,6 +207,7 @@
 
     const links = [
       `<a href="ship.html#${esc(s.id)}" class="guide-link">${s.curated ? "Ship guide &amp; cheatsheet" : "Controls cheatsheet"} →</a>`,
+      componentsHref && s.className && s.status !== "in-concept" && `<a href="${esc(componentsHref)}#plan=${encodeURIComponent(s.id)}" title="Swap weapons and components, and see what it costs">Plan loadout →</a>`,
       s.links.cstone && `<a href="${esc(s.links.cstone)}" target="_blank" rel="noopener">cstone ↗</a>`,
       s.links.wiki && `<a href="${esc(s.links.wiki)}" target="_blank" rel="noopener">Wiki ↗</a>`,
       s.pledge.url && `<a href="${esc(s.pledge.url)}" target="_blank" rel="noopener">RSI pledge ↗</a>`,
