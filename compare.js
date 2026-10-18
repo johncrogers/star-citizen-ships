@@ -17,10 +17,26 @@
 
   let ids = (load(LIST_KEY, []) || []).filter((id) => shipById.has(id)).slice(0, MAX);
   let calc = load(CALC_KEY, {}) || {};
+  // Each ship keeps its chart color while it's in compare, even when the baseline changes.
+  const SLOTS_KEY = "sc-ships-wishlist:compare-colors";
+  let slots = load(SLOTS_KEY, {}) || {};
+  function assignSlots() {
+    for (const id of Object.keys(slots)) if (!ids.includes(id)) delete slots[id];
+    for (const id of ids) {
+      if (slots[id] != null) continue;
+      const used = new Set(Object.values(slots));
+      slots[id] = [0, 1, 2, 3].find((n) => !used.has(n));
+    }
+  }
+  assignSlots();
+  const slotOf = (id) => slots[id] ?? 0;
+  const swatch = (id) => `<span class="swatch s${slotOf(id)}" aria-hidden="true"></span>`;
   const listeners = [];
   const changed = () => {
+    assignSlots();
     store(LIST_KEY, ids);
     store(CALC_KEY, calc);
+    store(SLOTS_KEY, slots);
     listeners.forEach((fn) => fn());
   };
 
@@ -223,7 +239,7 @@
     const head = cols
       .map((s, i) => `<th scope="col" class="cmp-col">
         <a href="#${esc(s.id)}" class="cmp-thumb" title="Open ${esc(s.name)}">${s.image ? `<img src="${esc(s.image)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</a>
-        <a href="#${esc(s.id)}" class="cmp-name">${esc(s.name)}</a>
+        <a href="#${esc(s.id)}" class="cmp-name">${swatch(s.id)}${esc(s.name)}</a>
         <span class="cmp-actions">
           ${i === 0 ? `<span class="tag">Baseline</span>` : `<button type="button" class="ghost mini" data-baseline="${esc(s.id)}" title="Compare the other ships against this one">Make baseline</button>`}
           <button type="button" class="ghost mini" data-compare="${esc(s.id)}" title="Remove from compare" aria-label="Remove ${esc(s.name)}">×</button>
@@ -235,6 +251,221 @@
       return html ? `<tr class="cmp-group"><th colspan="${cols.length + 1}">${esc(group)}</th></tr>${html}` : "";
     }).join("");
     return `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  // ── Stat charts ────────────────────────────────────────────────────────────
+  // One small bar chart per stat. Each ship's bar wears its color (see slots above); values and
+  // names stay in text colors. better: "high" | "low" stars the best value.
+  const CHARTS = [
+    ["Flight", [
+      { label: "SCM speed", key: "scm", unit: "m/s", better: "high" },
+      { label: "Max speed", key: "maxSpeed", unit: "m/s", better: "high" },
+      { label: "Boost speed", key: "boostSpeed", unit: "m/s", better: "high" },
+      { label: "0 to SCM speed", key: "zeroToScmS", unit: "s", better: "low" },
+      { label: "Pitch", key: "pitch", unit: "°/s", better: "high" },
+      { label: "Yaw", key: "yaw", unit: "°/s", better: "high" },
+      { label: "Roll", key: "roll", unit: "°/s", better: "high" },
+    ]],
+    ["Combat", [
+      { label: "Pilot DPS", key: "pilotDps", better: "high" },
+      { label: "Pilot sustained DPS", key: "pilotSustainedDps", better: "high", note: "before overheating" },
+      { label: "Pilot alpha", key: "pilotAlpha", better: "high", note: "damage per volley" },
+      { label: "Turret DPS", key: "turretDps", better: "high" },
+      { label: "Missile damage", key: "missileDamage", better: "high", note: "full load" },
+      { label: "Missiles", key: "missileCount", better: "high" },
+      { label: "Shield HP", key: "shieldHp", better: "high" },
+      { label: "Shield regen", key: "shieldRegen", unit: "HP/s", better: "high" },
+      { label: "Hull HP", key: "hullHp", better: "high" },
+    ]],
+    ["Travel", [
+      { label: "Quantum speed", key: "qtSpeedMms", unit: "Mm/s", better: "high" },
+      { label: "Quantum spool time", key: "qtSpoolS", unit: "s", better: "low" },
+      { label: "Quantum range", key: "qtRangeGm", unit: "Gm", better: "high" },
+      { label: "Quantum fuel", key: "quantumFuel", better: "high" },
+      { label: "Hydrogen fuel", key: "hydrogenFuel", better: "high" },
+    ]],
+    ["Cargo & crew", [
+      { label: "Cargo", key: "cargoScu", unit: "SCU", better: "high" },
+      { label: "Mining hold", key: "oreScu", unit: "SCU", better: "high" },
+      { label: "Personal storage", key: "storageScu", unit: "SCU", better: "high" },
+      { label: "Largest cargo box", key: "maxBoxScu", unit: "SCU", better: "high" },
+      { label: "Beds", key: "beds", better: "high" },
+    ]],
+    ["Stealth & insurance", [
+      { label: "EM signature", key: "emSig", better: "low" },
+      { label: "IR signature", key: "irSig", better: "low" },
+      { label: "Claim time", key: "claimMin", unit: "min", better: "low" },
+    ]],
+  ];
+
+  function chartHtml(c, cols) {
+    const vals = cols.map((s) => {
+      const v = s.stats?.[c.key];
+      return typeof v === "number" ? v : null;
+    });
+    const known = vals.filter((v) => v != null);
+    if (!known.length) return "";
+    const max = Math.max(...known);
+    const best = known.length > 1 && new Set(known).size > 1 ? (c.better === "low" ? Math.min(...known) : Math.max(...known)) : null;
+    const unit = c.unit ? ` ${c.unit}` : "";
+    const rows = cols.map((s, i) => {
+      const v = vals[i];
+      // Tiny non-zero values still get a visible sliver; zero gets no bar.
+      const pct = !v || !max ? 0 : Math.max(1.5, (v / max) * 100);
+      const vs = i > 0 && v != null && vals[0] != null && v !== vals[0] ? ` (${signed(Math.round((v - vals[0]) * 10) / 10)} vs ${cols[0].name})` : "";
+      const tip = v == null ? `${s.name}: no data` : `${s.name}: ${fmt(v)}${unit}${vs}`;
+      return `<div class="bar-row" title="${esc(tip)}">
+        <span class="bar-name">${esc(s.name)}</span>
+        <span class="bar-track">${v == null ? "" : `<span class="bar s${slotOf(s.id)}" style="width:${pct.toFixed(1)}%"></span>`}</span>
+        <span class="bar-val${v === best ? " best" : ""}">${v == null ? '<span class="muted">—</span>' : `${v === best ? '<span class="best-star" aria-label="Best">★</span> ' : ""}${fmt(v)}`}</span>
+      </div>`;
+    }).join("");
+    const sub = [c.unit, c.better === "low" ? "lower is better" : "", c.note].filter(Boolean).join(" · ");
+    return `<figure class="chart">
+      <figcaption><strong>${esc(c.label)}</strong>${sub ? ` <small>${esc(sub)}</small>` : ""}</figcaption>
+      ${rows}
+    </figure>`;
+  }
+
+  function chartsHtml(cols) {
+    const legend = `<div class="legend">${cols.map((s) => `<span>${swatch(s.id)}${esc(s.name)}</span>`).join("")}</div>`;
+    const groups = CHARTS.map(([group, charts]) => {
+      const html = charts.map((c) => chartHtml(c, cols)).join("");
+      return html ? `<h4 class="chart-group">${esc(group)}</h4><div class="charts">${html}</div>` : "";
+    }).join("");
+    return `<section class="cmp-card">
+      <h3>Stats compared</h3>
+      ${legend}
+      ${groups || '<p class="muted">No stats for these ships yet.</p>'}
+      <p class="note small">Stats come from the Star Citizen Wiki API for patch ${esc((window.SHIP_CATALOG_META || {}).patch || "?")}. Concept ships have little or no data. Hover a bar for the exact value and its difference from ${esc(cols[0].name)}.</p>
+    </section>`;
+  }
+
+  // ── Features, loadout, guides, things to know ──────────────────────────────
+  // Capabilities are keys in each ship's `features` list (from the refresh script).
+  const FEATURES = [
+    ["quantum", "Quantum drive"],
+    ["vtol", "VTOL thrusters"],
+    ["bed", "Bed (log out on board)", (s) => s.stats?.beds && `${s.stats.beds} bed${s.stats.beds > 1 ? "s" : ""}`],
+    ["medbed", "Medical bed", (s) => s.stats?.medical],
+    ["ejection", "Ejection seats"],
+    ["escapePods", "Escape pods"],
+    ["jumpSeats", "Jump seats"],
+    ["tractor", "Tractor beam"],
+    ["mining", "Mining"],
+    ["salvage", "Salvage"],
+    ["refuel", "Refueling"],
+    ["interdiction", "Quantum interdiction"],
+    ["emp", "EMP"],
+    ["torpedoes", "Torpedoes"],
+    ["pdc", "Point defense turrets"],
+    ["dockingCollar", "Docking collar"],
+    ["snubHangar", "Snub hangar"],
+  ];
+  // Capabilities that come from stats rather than the features list.
+  const DERIVED = [
+    ["Cargo hold", (s) => s.stats?.cargoScu > 0 && `${fmt(s.stats.cargoScu)} SCU${s.stats.maxBoxScu ? ` · boxes up to ${s.stats.maxBoxScu} SCU` : ""}`],
+    ["Shields", (s) => s.stats?.shieldHp > 0 && `${fmt(s.stats.shieldHp)} HP`],
+    ["Turrets", (s) => (s.stats?.mannedTurrets || s.stats?.remoteTurrets) && `${s.stats.mannedTurrets || 0} manned · ${s.stats.remoteTurrets || 0} remote`],
+    ["Missiles", (s) => s.stats?.missileCount && `${s.stats.missileCount}`],
+    ["Countermeasures", (s) => s.stats?.countermeasures && `${s.stats.countermeasures} launchers`],
+    ["Comes with a loaner", (s) => s.pledge?.loaner],
+  ];
+  const yes = (detail) => `<span class="yes"><span class="yes-icon" aria-hidden="true">✓</span> ${detail ? esc(detail) : "Yes"}</span>`;
+  const no = `<span class="muted" aria-label="No">—</span>`;
+  const headRow = (cols) => `<thead><tr><th></th>${cols.map((s) => `<th scope="col" class="cmp-col">${swatch(s.id)}${esc(s.name)}</th>`).join("")}</tr></thead>`;
+
+  function featuresHtml(cols) {
+    const rows = [
+      ...FEATURES.map(([key, label, detail]) => [label, (s) => (s.features || []).includes(key) && ((detail && detail(s)) || true)]),
+      ...DERIVED,
+    ]
+      .map(([label, get]) => {
+        const vals = cols.map(get);
+        if (!vals.some(Boolean)) return "";
+        return `<tr><th scope="row">${esc(label)}</th>${vals.map((v) => `<td>${v ? yes(v === true ? "" : v) : no}</td>`).join("")}</tr>`;
+      })
+      .join("");
+    const noData = cols.filter((s) => s.status === "in-concept" && !(s.features || []).length);
+    return `<section class="cmp-card">
+      <h3>Capabilities</h3>
+      ${rows ? `<div class="cmp-scroll"><table class="cmp-table">${headRow(cols)}<tbody>${rows}</tbody></table></div>` : '<p class="muted">None of these ships have any listed capabilities.</p>'}
+      <p class="note small">Read from the game data, so it can miss things the data doesn't describe, like vehicle bays and ramps.
+        Only capabilities at least one of these ships has are shown.${noData.length ? ` No data for ${noData.map((s) => esc(s.name)).join(", ")} (not in the game yet).` : ""}</p>
+    </section>`;
+  }
+
+  const LOADOUT = [
+    ["Guns", (s) => s.loadout?.guns],
+    ["Turrets", (s) => s.loadout?.turrets],
+    ["Missiles & bombs", (s) => s.loadout?.missiles],
+    ["Components", (s) => s.loadout?.systems],
+  ];
+  function loadoutHtml(cols) {
+    const rows = LOADOUT.map(([label, get]) => {
+      const vals = cols.map(get);
+      if (!vals.some((v) => v && v.length)) return "";
+      return `<tr><th scope="row">${esc(label)}</th>${vals
+        .map((v) => `<td>${v && v.length ? `<ul class="plain">${v.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : no}</td>`)
+        .join("")}</tr>`;
+    }).join("");
+    if (!rows) return "";
+    return `<section class="cmp-card">
+      <h3>Weapons &amp; loadout</h3>
+      <div class="cmp-scroll"><table class="cmp-table loadout">${headRow(cols)}<tbody>${rows}</tbody></table></div>
+      <p class="note small">The stock loadout. Sizes are hardpoint sizes (S1–S10). Gimbal mounts hold a gun one size smaller.</p>
+    </section>`;
+  }
+
+  // Ship guides live in guides/<id>.js and only load on ship.html, so fetch them here on demand
+  // with a script tag (works from file://). Ships without a guide simply fail to load one.
+  const guideState = new Map(); // id -> "loading" | "loaded" | "missing"
+  function ensureGuide(s) {
+    if (!s.curated || guideState.has(s.id)) return;
+    guideState.set(s.id, "loading");
+    const tag = document.createElement("script");
+    tag.src = `guides/${encodeURIComponent(s.id)}.js`;
+    tag.onload = () => { guideState.set(s.id, "loaded"); changed(); };
+    tag.onerror = () => { guideState.set(s.id, "missing"); changed(); };
+    document.head.appendChild(tag);
+  }
+  const guideOf = (s) => (window.SHIP_GUIDES || {})[s.id];
+
+  function columnsHtml(cols, cell) {
+    return `<div class="cmp-scroll"><div class="cmp-cols" style="--cols:${cols.length}">${cols
+      .map((s) => `<div class="cmp-colbox"><h4>${swatch(s.id)}${esc(s.name)}</h4>${cell(s)}</div>`)
+      .join("")}</div></div>`;
+  }
+
+  function guidesHtml(cols) {
+    cols.forEach(ensureGuide);
+    if (!cols.some((s) => s.curated)) {
+      return `<section class="cmp-card"><h3>Guide features</h3><p class="muted small">None of these ships has a guide yet. Ships you research get one (see the README).</p></section>`;
+    }
+    const cell = (s) => {
+      const g = guideOf(s);
+      if (!g) {
+        const st = guideState.get(s.id);
+        return `<p class="muted small">${st === "loading" ? "Loading…" : "No guide for this ship yet."}</p>`;
+      }
+      return `${g.summary ? `<p class="small">${esc(g.summary)}</p>` : ""}
+        <ul class="feature-list">${(g.features || []).map((f) => `<li><strong>${esc(f.name)}</strong><span>${esc(f.what || "")}</span></li>`).join("")}</ul>
+        <a class="small" href="ship.html#${esc(s.id)}">Full guide →</a>`;
+    };
+    return `<section class="cmp-card"><h3>Guide features</h3>${columnsHtml(cols, cell)}</section>`;
+  }
+
+  function ttkHtml(cols) {
+    if (!cols.some((s) => (s.thingsToKnow || []).length)) {
+      return `<section class="cmp-card"><h3>Things to know</h3><p class="muted small">No notes for these ships yet. Researched ships get Things to know in ships.data.js.</p></section>`;
+    }
+    const cell = (s) => {
+      const items = s.thingsToKnow || [];
+      return items.length
+        ? `<ul class="ttk">${items.map((t) => `<li class="ttk-${t.level === "warn" ? "warn" : "info"}"><span class="ttk-icon">${t.level === "warn" ? "!" : "i"}</span>${esc(t.text)}</li>`).join("")}</ul>`
+        : `<p class="muted small">Nothing noted yet.</p>`;
+    };
+    return `<section class="cmp-card"><h3>Things to know</h3>${columnsHtml(cols, cell)}</section>`;
   }
 
   // ── Upgrade calculator ─────────────────────────────────────────────────────
@@ -324,7 +555,8 @@
         ${cols.length
           ? `${cols.length === 1 ? `<p class="muted small">Add another ship to see the differences.</p>` : `<p class="muted small">Differences are against the baseline (first column). ★ marks the best value.</p>`}${tableHtml(cols)}`
           : `<p class="empty">No ships picked yet. Click <strong>⇄</strong> next to a ship in the list (or <strong>Compare</strong> on its detail panel), or add one above.</p>`}
-      </section>`;
+      </section>
+      ${cols.length ? chartsHtml(cols) + featuresHtml(cols) + loadoutHtml(cols) + guidesHtml(cols) + ttkHtml(cols) : ""}`;
   }
 
   // Slim bar above the list showing what's in compare, with a way to open it.
