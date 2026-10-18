@@ -6,6 +6,7 @@
   } = window.Wishlist;
   const Filters = window.ShipFilters;
   const Compare = window.ShipCompare;
+  const ValueMap = window.ValueMap;
   // "New Deal — Teasa Spaceport, Lorville, Hurston (Stanton)" -> search the locations app for it.
   const locationsHref = ((window.SITE || {}).links || []).find((l) => l.id === "locations")?.href;
   const componentsHref = ((window.SITE || {}).links || []).find((l) => l.id === "components")?.href;
@@ -96,8 +97,9 @@
       ["wishlist", "My wishlist", wanted],
       ["all", "All ships", ships.length],
       ["compare", "Compare &amp; upgrade", Compare.ids().length],
+      ["value", "Value map", null],
     ]
-      .map(([k, label, n]) => `<button class="tab${state.scope === k ? " on" : ""}" data-scope="${k}">${label} <span>${n}</span></button>`)
+      .map(([k, label, n]) => `<button class="tab${state.scope === k ? " on" : ""}" data-scope="${k}">${label}${n != null ? ` <span>${n}</span>` : ""}</button>`)
       .join("");
   }
 
@@ -313,10 +315,11 @@
   }
 
   const comparing = () => state.scope === "compare";
+  const valuing = () => state.scope === "value";
 
   // In the Compare tab the address bar holds the ships (#compare=a,b), so the view can be bookmarked.
   function syncCompareHash() {
-    const hash = comparing() ? `#compare=${Compare.ids().join(",")}` : state.selected ? `#${state.selected}` : "";
+    const hash = comparing() ? `#compare=${Compare.ids().join(",")}` : valuing() ? "#value" : state.selected ? `#${state.selected}` : "";
     if (location.hash === hash) return;
     try { history.replaceState(null, "", hash || location.pathname + location.search); } catch (e) { /* blocked on some file:// pages */ }
   }
@@ -324,9 +327,15 @@
   let shownDetail = null;
   function render() {
     document.body.classList.toggle("compare-mode", comparing());
+    document.body.classList.toggle("value-mode", valuing());
     renderScope();
-    $("compareTray").innerHTML = comparing() ? "" : Compare.trayHtml();
+    $("compareTray").innerHTML = comparing() || valuing() ? "" : Compare.trayHtml();
     renderPendingBanner($("pending"));
+    if (valuing()) {
+      ValueMap.render($("valueView"));
+      syncCompareHash();
+      return;
+    }
     if (comparing()) {
       Compare.render($("compareView"));
       syncCompareHash();
@@ -356,10 +365,11 @@
       setScope("compare");
       return;
     }
+    if (id === "value") return setScope("value");
     if (!id || !ships.some((s) => s.id === id)) return;
     state.selected = id;
-    // Opening a ship from the Compare tab goes back to the list.
-    if (comparing()) setScope(Wishlist.isWanted(id) ? "wishlist" : "all");
+    // Opening a ship from the Compare tab or the value map goes back to the list.
+    if (comparing() || valuing()) setScope(Wishlist.isWanted(id) ? "wishlist" : "all");
     // Linking to a ship that isn't on the wishlist: show it in "All ships" with filters cleared.
     if (state.scope === "wishlist" && !Wishlist.isWanted(id)) setScope("all");
     if (!filtered().some((s) => s.id === id)) {
@@ -406,6 +416,7 @@
     window.scrollTo(0, 0);
   });
   Compare.onChange(render);
+  ValueMap.bind($("valueView"), render);
   $("categoryChips").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-cat]");
     if (!btn) return;
